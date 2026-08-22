@@ -75,7 +75,7 @@ jobs:
           name: docker-image
           path: /tmp/image.tar
 
-    container-scan:
+  container-scan:
     needs: build
     runs-on: ubuntu-latest
     steps:
