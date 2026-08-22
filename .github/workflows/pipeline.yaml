@@ -38,3 +38,5 @@ jobs:
           python-version: '3.11'
       - run: pip install -r ./basic_app/requirements.txt
       - run: python -m pytest basic_app/
+        env:
+          PYTHONPATH: basic_app
