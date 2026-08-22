@@ -58,7 +58,7 @@ jobs:
         env:
           PYTHONPATH: basic_app
 
-  build:
+    build:
     needs: test
     runs-on: ubuntu-latest
     steps:
