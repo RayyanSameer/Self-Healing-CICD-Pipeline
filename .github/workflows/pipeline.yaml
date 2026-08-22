@@ -74,3 +74,18 @@ jobs:
         with:
           name: docker-image
           path: /tmp/image.tar
+
+    container-scan:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+          path: /tmp
+      - run: docker load -i /tmp/image.tar
+      - uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: myapp:${{ github.sha }}
+          exit-code: '1'
+          severity: 'HIGH,CRITICAL'        
