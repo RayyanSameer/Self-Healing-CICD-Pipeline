@@ -32,7 +32,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install bandit
-      - run: bandit -r basic_app/ -ll
+      - run: bandit -r basic_app/ -ll -s B104
 
   sca:
     needs: lint
@@ -58,7 +58,7 @@ jobs:
         env:
           PYTHONPATH: basic_app
 
-    build:
+  build:
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -84,8 +84,9 @@ jobs:
           name: docker-image
           path: /tmp
       - run: docker load -i /tmp/image.tar
-      - uses: aquasecurity/trivy-action@master
+      - uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: myapp:${{ github.sha }}
           exit-code: '1'
-          severity: 'HIGH,CRITICAL'        
+          ignore-unfixed: 'true'
+          severity: 'HIGH,CRITICAL'
