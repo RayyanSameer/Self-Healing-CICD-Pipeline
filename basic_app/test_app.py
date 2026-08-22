@@ -13,3 +13,4 @@ def test_health():
     assert response.status_code == 200
     assert response.get_json()["status"] == "healthy"
 
+
