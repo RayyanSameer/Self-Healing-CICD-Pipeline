@@ -1,17 +1,14 @@
-from flask import Flask, jsonify
-
-app = Flask(__name__)
+from app import app
 
 
-@app.route('/')
-def index():
-    return jsonify({"message": "hello world"})
+def test_index():
+    client = app.test_client()
+    response = client.get('/')
+    assert response.status_code == 200
 
 
-@app.route('/health')
-def health():
-    return jsonify({"status": "healthy"}), 200
-
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+def test_health():
+    client = app.test_client()
+    response = client.get('/health')
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "healthy"
