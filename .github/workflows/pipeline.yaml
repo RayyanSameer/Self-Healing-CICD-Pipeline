@@ -84,7 +84,7 @@ jobs:
           name: docker-image
           path: /tmp
       - run: docker load -i /tmp/image.tar
-      - uses: aquasecurity/trivy-action@0.28.0
+      - uses: aquasecurity/trivy-action@0master
         with:
           image-ref: myapp:${{ github.sha }}
           exit-code: '1'
