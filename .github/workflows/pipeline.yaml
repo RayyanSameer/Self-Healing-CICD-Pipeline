@@ -68,6 +68,7 @@ jobs:
         with:
           context: ./basic_app
           push: false
+          no-cache: true
           tags: myapp:${{ github.sha }}
           outputs: type=docker,dest=/tmp/image.tar
       - uses: actions/upload-artifact@v4

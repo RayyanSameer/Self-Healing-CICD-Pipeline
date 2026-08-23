@@ -1,6 +1,6 @@
 # Self-Healing-CICD-Pipeline
 
-# Self-Healing CI/CD Pipeline
+
 
 A 9-stage GitHub Actions pipeline that lints, security-scans, tests, builds,
 container-scans, deploys, and health-checks a small Flask app — with automatic
