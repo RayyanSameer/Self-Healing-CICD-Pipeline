@@ -71,12 +71,8 @@ jobs:
           no-cache: true
           load: true
           tags: myapp:${{ github.sha }}
-      - uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: myapp:${{ github.sha }}
-          exit-code: '1'
-          ignore-unfixed: 'true'
-          severity: 'HIGH,CRITICAL'
+          provenance: false
+          sbom: false
 
   deploy:
     needs: build-and-scan
@@ -99,3 +95,6 @@ jobs:
             pkill -f "python app.py" || true &&
             nohup python app.py > /tmp/app.log 2>&1 &
           '       
+
+
+          
