@@ -58,7 +58,7 @@ jobs:
         env:
           PYTHONPATH: basic_app
 
-  build:
+  build-and-scan:
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -69,25 +69,33 @@ jobs:
           context: ./basic_app
           push: false
           no-cache: true
+          load: true
           tags: myapp:${{ github.sha }}
-          outputs: type=docker,dest=/tmp/image.tar
-      - uses: actions/upload-artifact@v4
-        with:
-          name: docker-image
-          path: /tmp/image.tar
-
-  container-scan:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: docker-image
-          path: /tmp
-      - run: docker load -i /tmp/image.tar
       - uses: aquasecurity/trivy-action@master
         with:
           image-ref: myapp:${{ github.sha }}
           exit-code: '1'
           ignore-unfixed: 'true'
           severity: 'HIGH,CRITICAL'
+
+  deploy:
+    needs: build-and-scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+      - name: Deploy over SSH
+        run: |
+          ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} '
+            cd Self-Healing-CICD-Pipeline &&
+            git pull origin main &&
+            cd basic_app &&
+            source venv/bin/activate &&
+            pip install -r requirements.txt &&
+            pkill -f "python app.py" || true &&
+            nohup python app.py > /tmp/app.log 2>&1 &
+          '       
