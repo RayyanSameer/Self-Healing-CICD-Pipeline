@@ -93,8 +93,26 @@ jobs:
             source venv/bin/activate &&
             pip install -r requirements.txt &&
             pkill -f "python app.py" || true &&
+            sleep 2 &&
             nohup python app.py > /tmp/app.log 2>&1 &
-          '       
+          '
+      - name: Health check
+        run: |
+          sleep 5
+          curl --fail http://${{ secrets.EC2_HOST }}:5000/health
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} '
+            cd Self-Healing-CICD-Pipeline &&
+            git checkout HEAD~1 &&
+            cd basic_app &&
+            source venv/bin/activate &&
+            pip install -r requirements.txt &&
+            pkill -f "python app.py" || true &&
+            sleep 2 &&
+            nohup python app.py > /tmp/app.log 2>&1 &
+          '
 
 
           

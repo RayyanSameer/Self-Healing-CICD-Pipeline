@@ -10,7 +10,7 @@ def index():
 
 @app.route('/health')
 def health():
-    return jsonify({"status": "healthy"}), 200
+    return jsonify({"status": "healthy"}), 500
 
 
 if __name__ == '__main__':
