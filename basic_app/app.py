@@ -1,4 +1,5 @@
 from flask import Flask, jsonify
+import os \
 
 app = Flask(__name__)
 
@@ -12,7 +13,7 @@ def index():
 def health():
     if os.environ.get('APP_ENV') != 'production':
         return jsonify({"status": "unhealthy","reason": "env not set "}), 500
-    return jsonify({"status": "healthy"}),200    
+    return jsonify({"status": "healthy"}), 200    
 
 
 
