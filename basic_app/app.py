@@ -10,7 +10,10 @@ def index():
 
 @app.route('/health')
 def health():
-    return jsonify({"status": "healthy"}), 500
+    if os.environ.get('APP_ENV') != 'production':
+        return jsonify({"status": "unhealthy","reason": "env not set "}), 500
+    return jsonify({"status": "healthy"}),200    
+
 
 
 if __name__ == '__main__':

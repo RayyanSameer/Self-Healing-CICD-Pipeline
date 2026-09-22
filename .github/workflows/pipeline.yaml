@@ -57,6 +57,7 @@ jobs:
       - run: python -m pytest basic_app/
         env:
           PYTHONPATH: basic_app
+          APP_ENV: production
 
   build-and-scan:
     needs: test
