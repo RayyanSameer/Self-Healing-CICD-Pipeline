@@ -86,9 +86,11 @@ jobs:
           sbom: false
 
   deploy:
+    
     needs: build-and-scan
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
