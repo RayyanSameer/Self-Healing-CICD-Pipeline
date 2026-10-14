@@ -110,7 +110,7 @@ jobs:
             APP_ENV=production nohup python app.py < /dev/null > /tmp/app.log 2>&1 &
           '
       - name: Deploy over SSH
-        run: ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} 'APP_ENV=producton bash -s' < deploy.sh
+        run: ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} 'bash -s' < deploy.sh
 
       - name: External health check
         run: curl --fail --retry 5 --retry-connrefused --retry-delay 2 http://${{ secrets.EC2_HOST }}:5000/health
