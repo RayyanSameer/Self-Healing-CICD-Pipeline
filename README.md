@@ -1,85 +1,128 @@
-# Self-Healing-CICD-Pipeline
+# Self-Healing CI/CD Pipeline
 
+A GitHub Actions pipeline that takes a Flask app from `git push` to a running AWS EC2 server, scans it for secrets, vulnerable code and vulnerable dependencies on the way, verifies the deployment is actually healthy, and **automatically rolls back to the last known-good version if it is not**.
 
+> Built as a hands-on DevOps project. Every stage exists to catch one specific failure, and every failure path (including rollback) was proven by breaking the pipeline on purpose.
 
-A 9-stage GitHub Actions pipeline that lints, security-scans, tests, builds,
-container-scans, deploys, and health-checks a small Flask app — with automatic
-rollback on failed deploys and (planned) systemd/cron self-healing at the
-infrastructure level.
+---
 
-Built as a portfolio piece to demonstrate DevSecOps pipeline design: fail
-fast on cheap checks, block on real security findings, never ship an
-unscanned artifact.
-
-## Why this exists
-
-Most "CI/CD pipeline" portfolio projects are lint → test → deploy. This one
-adds the parts that actually matter in production: secrets scanning across
-full git history, static analysis on your own code, dependency vulnerability
-scanning, and container image scanning — each one a real gate that blocks
-the next stage on failure, not just a step that prints a report.
-
-## Pipeline stages
+## What it does
 
 ```
-secrets-scan → lint → sast ─┐
-                    └ sca ──┴→ test → build → container-scan → deploy → health-check + rollback
+push to main
+   │
+   ▼
+secrets-scan ─▶ lint ─▶ sast ─▶ sca ─▶ test ─▶ build-and-scan ─▶ deploy ─▶ health-check
+ (Gitleaks)   (flake8) (Bandit) (pip-audit) (pytest) (Docker + Trivy)  (SSH/EC2)      │
+                                                                                      │ fails?
+                                                                                      ▼
+                                                                               rollback to
+                                                                              last good SHA
 ```
 
 | Stage | Tool | Catches |
 |---|---|---|
-| Secrets scan | Gitleaks | Hardcoded credentials, API keys — scans full git history |
-| Lint | flake8 | Code shape issues — unused imports, formatting |
-| SAST | Bandit | Dangerous patterns in code you wrote (`eval`, `shell=True`, etc.) |
-| SCA | pip-audit | Known CVEs in dependencies you imported |
-| Test | pytest | Does it actually work |
-| Build | Docker Buildx | Package into a deployable, SHA-tagged image |
-| Container scan | Trivy | CVEs in the full built image, including base OS + vendored deps |
-| Deploy | SSH → EC2 | `git pull` + restart on the target host |
-| Health check + rollback | curl + `if: failure()` | Auto-revert to previous commit if deploy is unhealthy |
+| secrets-scan | Gitleaks | Credentials committed to git (including history) |
+| lint | flake8 | Syntax and style problems, fast |
+| sast | Bandit | Insecure patterns in your own code |
+| sca | pip-audit | Known CVEs in Python dependencies |
+| test | pytest | Logic bugs |
+| build-and-scan | Docker Buildx + Trivy | Broken builds, OS/library CVEs in the image |
+| deploy | SSH + `deploy.sh` | Ships the new version to EC2 |
+| health-check | `curl --fail` (from the runner) | A deploy that "succeeded" but is not serving |
+| rollback | `deploy.sh rollback` | Restores the last version that passed a health check |
 
-`needs:` chains every stage — a failure at any gate blocks everything downstream.
-SAST and SCA run in parallel (both only need `lint`); everything else is linear.
+**Stage order:** cheap and fast checks first, expensive ones later, and nothing touches the server until every gate has passed.
 
-## Real findings caught and fixed during development
+## How rollback works
 
-This pipeline has already done its job at least twice before going live:
-
-- **pip-audit** flagged CVEs in `flask==3.0.3` and `pytest==8.2.0` — bumped to
-  patched versions (`3.1.3`, `9.0.3`).
-- **Bandit** flagged `app.run(host='0.0.0.0', ...)` (B104 — binding to all
-  interfaces). Reviewed and suppressed with justification (`# nosec B104`) —
-  required for the app to be reachable through Docker's port mapping; not a
-  real risk in this container context.
-- **Trivy** flagged HIGH severity CVEs in vendored `setuptools` internals
-  (`jaraco.context`, `wheel`) inside the built image — fixed by explicitly
-  upgrading `pip`/`setuptools` in the Dockerfile.
-
-None of these were injected for demo purposes — all three were caught
-organically while building the pipeline, which is a stronger signal than a
-pipeline that's never found anything.
-
-## Local development
+1. `deploy.sh` checks out the target version, installs dependencies, restarts the app, then polls `/health` (up to 10 tries, 2 s apart).
+2. **Only after a passing health check** does it write the commit SHA to `~/last-good-sha`. A failed deploy never overwrites it.
+3. If the deploy or the external health check fails, the workflow's `if: failure()` step runs `deploy.sh rollback`.
+4. Rollback is *not* separate logic. It is the same deploy path pointed at the recorded SHA, then verified by the same health check.
+5. The pipeline run still ends **red** after a successful rollback, because the deploy failed and a human should know.
 
 ```bash
-cd basic_app
-docker build -t myapp:test .
-docker run -p 5000:5000 myapp:test
-curl http://localhost:5000/health
+./deploy.sh            # deploy main
+./deploy.sh <sha>      # deploy a specific commit
+./deploy.sh rollback   # redeploy the last known-good commit
 ```
 
-## Stack
+## Repository layout
 
-GitHub Actions · Docker · Flask · Gitleaks · flake8 · Bandit · pip-audit ·
-Trivy · EC2 (SSH deploy) · systemd (planned)
+```
+.github/workflows/   GitHub Actions pipeline
+basic_app/           Flask app, Dockerfile, requirements.txt, tests
+deploy.sh            Deploy / rollback script (runs on the server over SSH)
+bootstrap.sh         One-time server setup (clone repo, create venv, install deps)
+```
 
-## Status
+## Test the deploy locally before touching EC2
 
-- [x] Day 1 — hello-world workflow, green tick
-- [x] Day 2 — secrets-scan → lint → test chain, `needs:` verified
-- [x] Day 3 (in progress) — sast, sca, build, container-scan added; 3 real
-      findings triaged and fixed
-- [ ] Deploy stage — EC2 wiring in progress
-- [ ] Health check + rollback
-- [ ] systemd + cron self-healing (Days 7–8)
-- [ ] Deliberate 5-way failure simulation + postmortems
+The deploy script is tested against a Docker container that mimics the server (Ubuntu 24.04, `sshd`, same user, same paths), so a deploy attempt takes seconds instead of a full pipeline run.
+
+```bash
+ssh-keygen -t ed25519 -f test_key -N ""                       # throwaway key, never reuse
+docker build -f Dockerfile.testserver -t test-server .
+docker run -d --name test-server -p 2222:22 test-server
+
+SSH="ssh -i test_key -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ubuntu@localhost"
+$SSH 'bash -s' < bootstrap.sh          # set the server up once
+$SSH 'bash -s' < deploy.sh             # good deploy  -> HEALTHY: <sha>
+$SSH 'APP_ENV=producton bash -s' < deploy.sh   # bad deploy -> UNHEALTHY, exit 1
+$SSH 'bash -s -- rollback' < deploy.sh # recover      -> ROLLING BACK to <sha>, HEALTHY
+```
+
+Rule: the same scripts run locally and in the pipeline. If a fix is needed on the server, it goes into `bootstrap.sh`, never into a manual change.
+
+## Setup
+
+**GitHub Secrets**
+
+| Secret | Value |
+|---|---|
+| `EC2_HOST` | Public DNS/IP of the instance (changes on restart, see limitations) |
+| `EC2_USER` | `ubuntu` |
+| `EC2_SSH_KEY` | Full private key contents, including the BEGIN/END lines |
+
+**Server prerequisites:** Ubuntu 24.04, Python 3, git, repo cloned at `~/Self-Healing-CICD-Pipeline` with a venv at `basic_app/venv` (`bootstrap.sh` does this), security group allowing SSH (22) and the app port (5000).
+
+## Failure drills (proof it works)
+
+| Drill | How | Result |
+|---|---|---|
+| Lint error | Introduce a flake8 violation | Chain blocks before test |
+| Vulnerable dependency | Pin an old package | pip-audit / Trivy fail the run |
+| Bad deploy | `APP_ENV=producton` in the deploy step only | Health check fails, rollback redeploys the previous SHA, app returns 200, run ends red |
+
+_Add screenshots of the rollback run here._
+
+## Bugs found and fixed along the way
+
+- **Stale artifact:** Trivy scanned an old image. Fixed by building and scanning in one job with `load: true`.
+- **SBOM false positives:** fixed with `provenance: false` and `sbom: false` on the build step.
+- **Background process died with the SSH session:** `nohup` alone left stdin attached to the SSH pipe. Fixed with `< /dev/null`.
+- **Deploy job ran without the repo:** missing `actions/checkout`, so `deploy.sh` did not exist on the runner.
+- **Rollback target was a guess (`HEAD~1`):** replaced with a recorded last-good SHA written only after a passing health check.
+- **Health check race:** the check could run before the app was listening. Fixed with retries.
+- **Local/prod drift:** venv path differed between the test server and EC2. Fixed by matching the script to production.
+
+Full write-up in [PROJECT_DOCS.md](PROJECT_DOCS.md).
+
+## Known limitations (honest list)
+
+- The image that Trivy scans is **not** the artifact that gets deployed. Deploy pulls source and runs it in a venv. Production practice is build once, deploy that exact image.
+- App runs on the Flask development server. Production should use gunicorn or similar behind a reverse proxy.
+- The process is started with `nohup`, not a systemd unit, so there is no automatic restart on crash or reboot.
+- `EC2_HOST` is updated by hand whenever the instance restarts and its address changes.
+- SSH access uses a long-lived key stored as a GitHub secret.
+- Health check is shallow: it catches startup failures, not degradation after minutes of traffic.
+- Single environment. No staging, no canary or blue-green.
+
+## Roadmap
+
+systemd service, deploy the scanned image by digest, OIDC instead of stored keys, stable DNS name for the host, staging environment with approval gate, automated dependency-fix pull requests, caching. See [ADVANCED_PIPELINE_DESIGN.md](ADVANCED_PIPELINE_DESIGN.md).
+
+## What I learned
+
+Debugging by reading the failing step's log and confirming the commit SHA before re-testing; reproducing production locally so feedback takes seconds; designing recovery as part of deployment instead of an afterthought; and proving every gate by making it fail on purpose.
